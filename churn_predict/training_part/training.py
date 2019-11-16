@@ -7,11 +7,6 @@ Created on Thu Nov  7 15:18:40 2019
 """
 
 
-#####################
-### Attention: tous les indicateurs doivent être calculé avant la derniere date disponible - 90 jours
-### Customer key unique lors de l'apprentissage du modele
-
-
 ###############
 ### Modules ###
 ###############
@@ -21,8 +16,9 @@ import numpy as np
 import datetime as dt
 
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.model_selection import GridSearchCV
 from sklearn.neural_network import MLPClassifier
+from sklearn.externals import joblib
 
 
 # Macro variables
@@ -57,7 +53,7 @@ class data_preprocessing:
 		self.df = df		
 
 
-	def replace_missing(self, x, y=None):
+	def replaceMissing(self, x, y=None):
 	
 		"""
 		Replace the missing values within the DataFrame
@@ -91,7 +87,7 @@ class data_preprocessing:
 			
 		return x
 	
-	def replace_values(self, x, old_val, new_val, reg_expr=False):
+	def replaceValues(self, x, old_val, new_val, reg_expr=False):
 	
 		"""
 		Replace a specific value within a Series by an other one
@@ -152,7 +148,7 @@ class data_preprocessing:
 		return disc_x
 	
 	
-	def categorical_encoding(self, df, is_ordinal=[]):
+	def categoricalEncoding(self, df, is_ordinal=[]):
 	
 		"""
 		Encode the categorical variables
@@ -197,7 +193,7 @@ class data_preprocessing:
 						
 		return df
 	
-	def count_days(self, date1, date2):
+	def countDays(self, date1, date2):
 	
 		"""
 		Count the number of days between two dates
@@ -232,7 +228,7 @@ class data_preprocessing:
 		return n_days
 	
 
-	def aggreg_stats(self, x, x_by, stat):
+	def aggregStats(self, x, x_by, stat):
 		
 		"""
 		Compute the corresponding aggregated statistics 
@@ -307,8 +303,8 @@ class data_preprocessing:
 		############
 		### Labeling
 		
-		n_inactive_days   = self.count_days(last_available_date,self.df.transaction_date)
-		min_inactive_days = self.aggreg_stats(n_inactive_days,self.df.index,'min')
+		n_inactive_days   = self.countDays(last_available_date,self.df.transaction_date)
+		min_inactive_days = self.aggregStats(n_inactive_days,self.df.index,'min')
 					
 		df_target = self.binarize(min_inactive_days, 90).to_frame('target')
 		self.df   = self.df.merge(df_target, how='inner', left_index=True, right_index=True)		
@@ -316,16 +312,16 @@ class data_preprocessing:
 		#################
 		### Data Cleaning
 		
-		self.df = self.df.apply(self.replace_missing,axis=0)
+		self.df = self.df.apply(self.replaceMissing,axis=0)
 		
 		# Replace the undefined value within gender by M (the most frequent level)
-		self.df['gender'] = self.replace_values(self.df.gender, r'^((?![MF]).)*$',
-			                                    self.df.gender.mode()[0], True)
+		self.df['gender'] = self.replaceValues(self.df.gender, r'^((?![MF]).)*$',
+			                                   self.df.gender.mode()[0], True)
 		
 		self.df['gender'] = self.binarize(self.df.gender,['F'])
 		
-		self.df['profit_loss'] = self.replace_values(self.df.profit_loss, r'[0-9,]{1,}E-[0-9]{1,}$',
-											     '0.0', True)
+		self.df['profit_loss'] = self.replaceValues(self.df.profit_loss, r'[0-9,]{1,}E-[0-9]{1,}$',
+											    '0.0', True)
 		self.df['profit_loss'] = self.df.profit_loss.astype(float)
 		
 		# Discretization of the date of birth variable
@@ -336,7 +332,7 @@ class data_preprocessing:
 										 ['10','11','12','14','16','17','20'])
 		
 		# Handle the categorical variable encoding
-		self.df = self.categorical_encoding(self.df, [True])
+		self.df = self.categoricalEncoding(self.df, [True])
 		
 		
 		#######################
@@ -346,8 +342,8 @@ class data_preprocessing:
 		self.df = self.df[self.df.transaction_date<=last_observable_date]
 		
 		# Customer fidelity
-		ndays_registration = self.count_days(last_observable_date,
-						   self.aggreg_stats(self.df.registration_date,
+		ndays_registration = self.countDays(last_observable_date,
+						   self.aggregStats(self.df.registration_date,
 						   self.df.index,'first'))
 		
 		df_customer_fidelity = self.discretization(ndays_registration,[-1,365,365*2,365*3]
@@ -356,25 +352,25 @@ class data_preprocessing:
 		self.df = self.df.merge(df_customer_fidelity, how='inner', 
 							  left_index = True, right_index = True)
 		
-		self.df = self.categorical_encoding(self.df,is_ordinal = [True])
+		self.df = self.categoricalEncoding(self.df,is_ordinal = [True])
 		
 		self.df = self.df.drop('registration_date',axis=1)
 		
 		# Total Bet Number per customer
-		self.df['total_bet_nb'] = self.aggreg_stats(self.df.bet_nb,self.df.index,'sum')
+		self.df['total_bet_nb'] = self.aggregStats(self.df.bet_nb,self.df.index,'sum')
 		# Total Deposit Number per customer
-		self.df['total_deposit_nb'] = self.aggreg_stats(self.df.deposit_nb,self.df.index,'sum')
+		self.df['total_deposit_nb'] = self.aggregStats(self.df.deposit_nb,self.df.index,'sum')
 		# Total profit/loss per customer
-		self.df['total_profit_loss'] = self.aggreg_stats(self.df.profit_loss,self.df.index,'sum')	
+		self.df['total_profit_loss'] = self.aggregStats(self.df.profit_loss,self.df.index,'sum')	
 	    
 		# Mean Bet Amount per customer (remove deposit rows)
-		self.df['mean_bet_amount'] = self.aggreg_stats(self.df[self.df.bet_nb!=0].bet_amount,
-											       self.df[self.df.bet_nb!=0].index,'mean')
+		self.df['mean_bet_amount'] = self.aggregStats(self.df[self.df.bet_nb!=0].bet_amount,
+											      self.df[self.df.bet_nb!=0].index,'mean')
 		
 		self.df['mean_bet_amount'] = self.df.mean_bet_amount.replace(np.nan,0)
 		
 		# Mean Deposit Amount per customer (remove bet rows)
-		self.df['mean_deposit_amount'] = self.aggreg_stats(
+		self.df['mean_deposit_amount'] = self.aggregStats(
 									  self.df[self.df.deposit_nb!=0].deposit_amount,
 									  self.df[self.df.deposit_nb!=0].index,'mean')
 		
@@ -387,7 +383,7 @@ class data_preprocessing:
 		self.df = self.df.reset_index().sort_values(by=['customer_key','transaction_date']
 		                                              ).set_index(['customer_key'])
 		
-		df_ndays_last_transaction = self.aggreg_stats(self.count_days(last_observable_date,
+		df_ndays_last_transaction = self.aggregStats(self.countDays(last_observable_date,
 								 self.df.transaction_date),self.df.index,'last'
 								 ).to_frame(name='ndays_last_transaction')
 		
@@ -397,23 +393,23 @@ class data_preprocessing:
 		transaction_date_shift = self.df.transaction_date.shift()
 		customer_key_shift = [self.df.index[-1]]+list(self.df.index[:-1])
 				
-		ndays_between_transactions = self.count_days(self.df.transaction_date,
-									         transaction_date_shift)
+		ndays_between_transactions = self.countDays(self.df.transaction_date,
+									             transaction_date_shift)
 		
 		# Number of days between two transactions
 		self.df['interval_transactions'] = [ndays_between_transactions.iloc[i] if 
 	                                         self.df.index[i] == customer_key_shift[i] else
 	                                         np.nan for i in range(self.df.shape[0])]
 	
-		df_freq_transactions = self.aggreg_stats(self.df.interval_transactions.dropna(),
+		df_freq_transactions = self.aggregStats(self.df.interval_transactions.dropna(),
 							 self.df[pd.notnull(self.df.interval_transactions)].index,
 		                       'mean').to_frame(name='frequency_transactions')
 		
 		self.df = pd.concat([self.df,df_freq_transactions],axis=1)
 		
 		# Missing values in frequency transactions = customer with only one transaction
-		self.df['frequency_transactions'] = self.replace_missing(self.df.frequency_transactions,
-														    self.df.ndays_last_transaction)
+		self.df['frequency_transactions'] = self.replaceMissing(self.df.frequency_transactions,
+														   self.df.ndays_last_transaction)
 										  		
 		self.df = self.df.drop(['transaction_date','interval_transactions'],axis=1)
 		
@@ -427,56 +423,29 @@ class data_preprocessing:
 		return X, y
 
 
-####################
-### Cross Validation
-
-def cross_validation(X, y, test_size, rnd_state):
-
-	X_train, X_test, y_train, y_test = train_test_split(X,y,test_size=test_size,
-												   random_state=rnd_state)
-	
-	return X_train, X_test, y_train, y_test
-
-
 ############
 ### Training
 
 class training_model:
 	
-	def __init__(self,target,features,tuned_params,cv):
+	def __init__(self,target,features):
 		
 		self.target       = target
 		self.features     = features
-		self.tuned_params = tuned_params
-		self.cv           = cv
 		
 		self.features = np.array(self.features)
-		self.target   = np.array(self.target).flatten()
+		self.target   = np.array(self.target).flatten()			
 
-
-	def gridSearch(self):
+	def gridSearch(self,tuned_params,cv):
 		
 		estimator = MLPClassifier()
 							
-		gs_cv = GridSearchCV(cv=self.cv, estimator=estimator, param_grid=self.tuned_params)									
+		gs_cv = GridSearchCV(cv=cv, estimator=estimator, param_grid=tuned_params)									
 		gs_cv_fit = gs_cv.fit(self.features, self.target)
 		
-		best_params = gs_cv_fit.best_params_
+		best_mlp_classifier = gs_cv_fit.best_estimator_
 		
-		return best_params
-	
-	
-	def fit(self):
-		
-		best_params = self.gridSearch()
-		
-		ml_model = MLPClassifier(hidden_layer_sizes=best_params['hidden_layer_sizes'],
-							   activation=best_params['activation'])
-		
-		ml_model_fit = ml_model.fit(self.features, self.target)
-		
-		return ml_model_fit
-		
+		return best_mlp_classifier			
 				
 
 def main(f_dir):
@@ -499,21 +468,18 @@ def main(f_dir):
 	### Data preprocessing
 	
 	data_process = data_preprocessing(df_churn)
-	X, y = data_process.process()							
-	
-	####################
-	### Cross Validation
-	
-	X_train, X_test, y_train, y_test = cross_validation(X, y, 0.3, 123)
+	X, y = data_process.process()								
 	
 	############
 	### Training	
 		
 	# Multilayer Perceptron
-	mlp_training = training_model(y_train, X_train, [
-			{'hidden_layer_sizes':[(14,7),(10,5),(8,)],'activation':['tanh','logistic']}], 4)
-	mlp_fit = mlp_training.fit()
+	mlp_training   = training_model(y, X)
+	mlp_classifier = mlp_training.gridSeach([
+			{'hidden_layer_sizes':[(14,7),(10,5),(8,)],'activation':['tanh','logistic']}],4)
+	
+	joblib.dump(mlp_classifier, 'classifier.pkl')
 		
-	return mlp_fit
+	return mlp_classifier
 										
 
