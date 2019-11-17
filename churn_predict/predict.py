@@ -6,41 +6,47 @@ Created on Fri Nov 15 11:18:14 2019
 @author: davidazoulay
 """
 
+import pandas as pd
+import datetime as dt
 
-from training_part.training import read_csv_file, data_preprocessing, training_model
+from sklearn.externals import joblib
+from training_part.training import DataPreprocessing
 
 
-class predict(training_model):
+###################
+### Macro Variables
+
+# Column names
+col_names = ['customer_key', 'registration_date', 'year_of_birth', 'gender', 
+             'acquisition_channel_id', 'transaction_date', 'bet_nb', 'bet_amount',
+		    'profit_loss', 'deposit_nb', 'deposit_amount', 'betclic_customer_segmentation']
+
+
+def make_predictions(model_fit, test_set):
 	
-	def __init__(self,target,features,test_set):
+	model_predictions   = model_fit.predict(test_set)
+	model_probabilities = model_fit.predict_proba(test_set)[:,1]
+	
+	return model_predictions, model_probabilities		
 		
-		training_model.__init__(self,target,features)
-		self.test_set = test_set
-	
-	def predictions(self):
-		
-		model = training_model(self.target, self.features)
-		model_fit = model.fit()
-		model_predictions = model_fit.predict(self.test_set)
-		
-		return model_predictions		
-	
 
-def main(f_dir):
+def main(f_name):
+
+	dateParse = lambda x : dt.datetime.strptime(x, '%d/%m/%y')		
 	
-	# Column names
-	col_names = ['customer_key', 'registration_date', 'year_of_birth', 'gender', 
-	             'acquisition_channel_id', 'transaction_date', 'bet_nb', 'bet_amount', 'profit_loss',
-			     'deposit_nb', 'deposit_amount', 'betclic_customer_segmentation']
+	df_churn_test = pd.read_csv(f_name, sep = ';', names = col_names, header = 0,
+						      usecols = col_names[:-1], index_col = 0, 
+                                 parse_dates = ['registration_date','transaction_date'], 
+					          date_parser = dateParse, na_values = 'NaT', 
+						      dtype = {'year_of_birth': object, 'acquisition_channel_id': object})
 	
-	df_churn_test = read_csv_file(
-						f_dir,';',col_names,0,col_names[:-1],0,
-						['registration_date','transaction_date'],
-						{'year_of_birth': object, 'acquisition_channel_id': object})
+	df_churn_test = df_churn_test.reset_index().sort_values(
+			       by=['customer_key','transaction_date']).set_index(['customer_key'])
 	
-	pre_process = data_preprocessing(df_churn_test)					
-	X_test, y_test = pre_process.process()						
+	pre_process = DataPreprocessing(df_churn_test)					
+	X_test, y_test = pre_process.process()
+
+	pre_trained_model = joblib.load('training_part/classifier.joblib')						
+	y_pred, y_probs = make_predictions(pre_trained_model, X_test)
 	
-	pred = training_model.predict(X_test)
-	
-	return pred
+	return y_pred, y_probs
